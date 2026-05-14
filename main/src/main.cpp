@@ -15,28 +15,32 @@
 
 #include "media_data.h"
 
-std::atomic<bool> running{true};
-
 NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE(MediaData, audio, video, images);
 
-void background_worker(std::atomic<std::shared_ptr<MediaData>> &data,
+void background_worker(std::stop_token token,
+  std::atomic<std::shared_ptr<MediaData>> &data,
   const std::unordered_set<std::string_view> &video_ext,
   const std::unordered_set<std::string_view> &audio_ext,
   const std::unordered_set<std::string_view> &image_ext,
   std::int64_t sleep_interval) {
     std::string_view homeDirectory = get_home_directory();
     auto path_to_save = std::filesystem::path(homeDirectory).append(".media_files");
-    while (running.load(std::memory_order_acquire)) {
-        std::this_thread::sleep_for(std::chrono::seconds(sleep_interval));
-        auto d = file_walk(data, video_ext, audio_ext, image_ext, homeDirectory);
-        std::ofstream file(path_to_save.c_str());
-        if (!file) {
-            std::cerr << "Error while opening file!" << std::endl;
-            continue;
-        }
-        file << static_cast<nlohmann::json>(*d);
-        if (!file) {
-            std::cerr << "Error while writing to file!" << std::endl;
+    std::mutex dummy_mtx;
+    std::condition_variable_any cv;
+    {
+        std::unique_lock lock(dummy_mtx);
+        while (!token.stop_requested()) {
+            auto d = file_walk(data, video_ext, audio_ext, image_ext, homeDirectory);
+            std::ofstream file(path_to_save.c_str());
+            if (!file) {
+                std::cerr << "Error while opening file!" << std::endl;
+                continue;
+            }
+            file << static_cast<nlohmann::json>(*d);
+            if (!file) {
+                std::cerr << "Error while writing to file!" << std::endl;
+            }
+            cv.wait_for(lock, token, std::chrono::seconds(sleep_interval), [] () { return false; });
         }
     }
 }
@@ -64,11 +68,13 @@ int main(int argc, const char** argv) {
             s << static_cast<nlohmann::json>(*data.load(std::memory_order_acquire));
             return crow::response(s.str());
         });
-    std::thread t(background_worker, std::ref(data), std::ref(video_ext), std::ref(audio_ext), std::ref(image_ext), timeout);
+    std::stop_source stop_src;
+    std::stop_token token = stop_src.get_token();
+    std::jthread t(background_worker, token, std::ref(data), std::ref(video_ext), std::ref(audio_ext), std::ref(image_ext), timeout);
     auto& cors = app.get_middleware<crow::CORSHandler>();
     cors.global().origin("*");
     app.bindaddr("0.0.0.0").port(1234).multithreaded().run();
-    running.store(false, std::memory_order_release);
+    stop_src.request_stop();
     t.join();
     return 0;
 }

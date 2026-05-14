@@ -13,7 +13,7 @@ std::shared_ptr<MediaData> file_walk(std::atomic<std::shared_ptr<MediaData>> &da
   const std::unordered_set<std::string_view> &video_ext,
   const std::unordered_set<std::string_view> &audio_ext,
   const std::unordered_set<std::string_view> &image_ext,
-  const std::string_view &homeDirectory) {
+  std::string_view homeDirectory) {
     namespace fs = std::filesystem;
     fs::recursive_directory_iterator it(homeDirectory,
         fs::directory_options::skip_permission_denied
