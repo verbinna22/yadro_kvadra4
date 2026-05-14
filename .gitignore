@@ -1,0 +1,7 @@
+build
+.cache
+.vscode
+venv
+__pycache__
+.pytest_cache
+**/Cargo.lock
