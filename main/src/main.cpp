@@ -5,6 +5,7 @@
 #include <ios>
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 #include <crow.h>
@@ -22,15 +23,16 @@ void background_worker(std::stop_token token,
   const std::unordered_set<std::string_view> &video_ext,
   const std::unordered_set<std::string_view> &audio_ext,
   const std::unordered_set<std::string_view> &image_ext,
-  std::int64_t sleep_interval) {
-    std::string_view homeDirectory = get_home_directory();
-    auto path_to_save = std::filesystem::path(homeDirectory).append(".media_files");
+  std::int64_t sleep_interval,
+  const char *home_directory
+) {
+    auto path_to_save = std::filesystem::path(home_directory).append(".media_files");
     std::mutex dummy_mtx;
     std::condition_variable_any cv;
     {
         std::unique_lock lock(dummy_mtx);
         while (!token.stop_requested()) {
-            auto d = file_walk(data, video_ext, audio_ext, image_ext, homeDirectory);
+            auto d = file_walk(data, video_ext, audio_ext, image_ext, home_directory);
             std::ofstream file(path_to_save.c_str());
             if (!file) {
                 std::cerr << "Error while opening file!" << std::endl;
@@ -47,14 +49,36 @@ void background_worker(std::stop_token token,
 
 int main(int argc, const char** argv) {
     int64_t timeout = 20;
-    if (argc == 2){
-        auto [ptr, ec] = std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), timeout);
-        if (ec != std::errc{} || *ptr || timeout <= 0) {
-            std::cerr << "Invalid timeout format! Must be positive integer!" << std::endl;
+    const char *home_directory = "";
+    switch (argc) {
+        case 3: {
+            home_directory = argv[2];
+            [[fallthrough]];
+        }
+        case 2: {
+            auto [ptr, ec] = std::from_chars(argv[1], argv[1] + std::strlen(argv[1]), timeout);
+            if (ec != std::errc{} || *ptr || timeout <= 0) {
+                std::cerr << "Invalid timeout format! Must be positive integer!" << std::endl;
+                return 1;
+            }
+            [[fallthrough]];
+        }
+        case 1:
+            break;
+        default:
+            std::cerr << "Usage: " << argv[0] << " [timeout in secs] [target directory]" << std::endl;
+            return 1;
+    }
+    if (home_directory[0] == '\0') {
+        try {
+            home_directory = get_home_directory();
+        } catch (std::runtime_error &) {
+            std::cerr << "Error while reading home directory!" << std::endl;
             return 1;
         }
-    } else if (argc != 1) {
-        std::cerr << "Usage: " << argv[0] << " <timeout in secs>" << std::endl;
+    }
+    if (!std::filesystem::exists(home_directory)) {
+        std::cerr << "Error: home directory does not exists!" << std::endl;
         return 1;
     }
     crow::App<crow::CORSHandler> app;
@@ -70,7 +94,7 @@ int main(int argc, const char** argv) {
         });
     std::stop_source stop_src;
     std::stop_token token = stop_src.get_token();
-    std::jthread t(background_worker, token, std::ref(data), std::ref(video_ext), std::ref(audio_ext), std::ref(image_ext), timeout);
+    std::jthread t(background_worker, token, std::ref(data), std::ref(video_ext), std::ref(audio_ext), std::ref(image_ext), timeout, home_directory);
     auto& cors = app.get_middleware<crow::CORSHandler>();
     cors.global().origin("*");
     app.bindaddr("0.0.0.0").port(1234).multithreaded().run();

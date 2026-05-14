@@ -13,9 +13,9 @@ std::shared_ptr<MediaData> file_walk(std::atomic<std::shared_ptr<MediaData>> &da
   const std::unordered_set<std::string_view> &video_ext,
   const std::unordered_set<std::string_view> &audio_ext,
   const std::unordered_set<std::string_view> &image_ext,
-  std::string_view homeDirectory) {
+  std::string_view home_directory) {
     namespace fs = std::filesystem;
-    fs::recursive_directory_iterator it(homeDirectory,
+    fs::recursive_directory_iterator it(home_directory,
         fs::directory_options::skip_permission_denied
     );
     std::shared_ptr<MediaData> d = std::make_shared<MediaData>();
@@ -39,11 +39,11 @@ std::shared_ptr<MediaData> file_walk(std::atomic<std::shared_ptr<MediaData>> &da
     return d;
 }
 
-std::string_view get_home_directory() {
+const char *get_home_directory() {
     uid_t uid = getuid();
     struct passwd* pw = getpwuid(uid);
     if (pw && pw->pw_dir) {
-        return std::string_view(pw->pw_dir);
+        return pw->pw_dir;
     }
     throw std::runtime_error("Home directory can't be found");
 }

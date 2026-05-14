@@ -13,6 +13,6 @@ std::shared_ptr<MediaData> file_walk(std::atomic<std::shared_ptr<MediaData>> &da
   const std::unordered_set<std::string_view> &image_ext,
   std::string_view homeDirectory);
 
-std::string_view get_home_directory();
+const char *get_home_directory();
 
 #endif // FILE_WALKER_H
